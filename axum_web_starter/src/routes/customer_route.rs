@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use serde::Deserialize;
+use axum::http::StatusCode;
 
 use crate::models::customer::Customer;
 use crate::state::AppState;
@@ -41,27 +42,27 @@ async fn list_customers(State(app_state): State<Arc<RwLock<AppState>>>
 async fn get_customer(
     State(app_state): State<Arc<RwLock<AppState>>>,
     Path(id): Path<Uuid>,
-) -> Result<Json<Customer>, String> {
+) -> Result<Json<Customer>, (StatusCode, String)> {
     let state = app_state.read().await;
-    state.customers
-        .get(&id)
-        .cloned()
-        .map(Json)
-        .ok_or_else(|| "Customer not found".to_string())
+    if let Some(customer) = state.customers.get(&id) {
+        Ok(Json(customer.clone()))
+    } else {
+        Err((StatusCode::NOT_FOUND, "Customer not found".to_string()))
+    }
 }
 
 async fn update_customer(
     State(app_state): State<Arc<RwLock<AppState>>>,
     Path(id): Path<Uuid>,
     Json(payload): Json<CustomerPayload>,
-) -> Result<Json<Customer>, String> {
+) -> Result<Json<Customer>, (StatusCode, String)> {
     let mut state = app_state.write().await;
     if let Some(customer) = state.customers.get_mut(&id) {
         customer.name = payload.name;
         customer.email = payload.email;
         return Ok(Json(customer.clone()));
     }
-    Err("Customer not found".to_string())
+    Err((StatusCode::NOT_FOUND, "Customer not found".to_string()))
 }
 
 async fn delete_customer(
