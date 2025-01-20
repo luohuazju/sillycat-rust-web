@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use serde::Deserialize;
+use axum::http::StatusCode;
 
 use crate::models::seller::Seller;
 use crate::state::AppState;
@@ -41,27 +42,27 @@ async fn list_sellers(State(app_state): State<Arc<RwLock<AppState>>>
 async fn get_seller(
     State(app_state): State<Arc<RwLock<AppState>>>,
     Path(id): Path<Uuid>,
-) -> Result<Json<Seller>, String> {
+) -> Result<Json<Seller>, (StatusCode, String)> {
     let state = app_state.read().await;
-    state.sellers
-        .get(&id)
-        .cloned()
-        .map(Json)
-        .ok_or_else(|| "Seller not found".to_string())
+    if let Some(seller) = state.sellers.get(&id) {
+        Ok(Json(seller.clone()))
+    } else {
+        Err((StatusCode::NOT_FOUND, "Seller not found".to_string()))
+    }
 }
 
 async fn update_seller(
     State(app_state): State<Arc<RwLock<AppState>>>,
     Path(id): Path<Uuid>,
     Json(payload): Json<SellerPayload>,
-) -> Result<Json<Seller>, String> {
+) -> Result<Json<Seller>, (StatusCode, String)> {
     let mut state = app_state.write().await;
     if let Some(seller) = state.sellers.get_mut(&id) {
         seller.name = payload.name;
         seller.company_name = payload.company_name;
         return Ok(Json(seller.clone()));
     }
-    Err("Seller not found".to_string())
+    Err((StatusCode::NOT_FOUND, "Seller not found".to_string()))
 }
 
 async fn delete_seller(
