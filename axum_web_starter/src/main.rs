@@ -7,6 +7,7 @@ use std::sync::Arc;
 mod models;
 mod daos;
 mod routes;
+mod handlers;
 mod state;
 use dotenv::dotenv;
 
