@@ -4,15 +4,15 @@ use axum::{
     Router,
 };
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use uuid::Uuid;
 use serde::Deserialize;
 use axum::http::StatusCode;
 
 use crate::models::customer::Customer;
+use crate::daos::customer_dao::CustomerDAO;
 use crate::state::AppState;
 
-pub fn customer_routes(app_state: Arc<RwLock<AppState>>) -> Router {
+pub fn customer_routes(app_state: Arc<AppState>) -> Router {
     Router::new()
         .route("/customers", post(create_customer).get(list_customers))
         .route("/customers/{id}", get(get_customer).put(update_customer).delete(delete_customer))
@@ -20,60 +20,57 @@ pub fn customer_routes(app_state: Arc<RwLock<AppState>>) -> Router {
 }
 
 async fn create_customer(
-    State(app_state): State<Arc<RwLock<AppState>>>,
+    State(app_state): State<Arc<AppState>>,
     Json(payload): Json<CustomerPayload>,
-) -> Json<Customer> {
-    let mut state = app_state.write().await;
-    let customer = Customer{
-        id: Uuid::new_v4(),
-        name: payload.name,
-        email: payload.email,
-    };
-    state.customers.insert(customer.id, customer.clone());
-    Json(customer)
+) -> Result<Json<Customer>, (StatusCode, String)> {
+    CustomerDAO::create_customer(&app_state.db_pool, payload.name, payload.email)
+        .await
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
-async fn list_customers(State(app_state): State<Arc<RwLock<AppState>>>
-    ) -> Json<Vec<Customer>>{
-    let state = app_state.read().await;
-    Json(state.customers.values().cloned().collect())
+async fn list_customers(State(app_state): State<Arc<AppState>>
+    ) -> Result<Json<Vec<Customer>>, (StatusCode, String)>{
+    CustomerDAO::list_customers(&app_state.db_pool)
+        .await
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn get_customer(
-    State(app_state): State<Arc<RwLock<AppState>>>,
+    State(app_state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Customer>, (StatusCode, String)> {
-    let state = app_state.read().await;
-    if let Some(customer) = state.customers.get(&id) {
-        Ok(Json(customer.clone()))
-    } else {
-        Err((StatusCode::NOT_FOUND, "Customer not found".to_string()))
-    }
+    CustomerDAO::get_customer(&app_state.db_pool, id)
+        .await
+        .map(Json)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Customer not found".to_string()))
 }
 
 async fn update_customer(
-    State(app_state): State<Arc<RwLock<AppState>>>,
+    State(app_state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
     Json(payload): Json<CustomerPayload>,
 ) -> Result<Json<Customer>, (StatusCode, String)> {
-    let mut state = app_state.write().await;
-    if let Some(customer) = state.customers.get_mut(&id) {
-        customer.name = payload.name;
-        customer.email = payload.email;
-        return Ok(Json(customer.clone()));
-    }
-    Err((StatusCode::NOT_FOUND, "Customer not found".to_string()))
+    CustomerDAO::update_customer(&app_state.db_pool, id, payload.name, payload.email)
+        .await
+        .map(Json)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Customer not found".to_string()))
 }
 
 async fn delete_customer(
-    State(app_state): State<Arc<RwLock<AppState>>>,
+    State(app_state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
-) -> Result<&'static str, String> {
-    let mut state = app_state.write().await;
-    if state.customers.remove(&id).is_some() {
-        return Ok("Customer deleted");
+) -> Result<&'static str, (StatusCode, String)> {
+    let rows_affected = CustomerDAO::delete_customer(&app_state.db_pool, id)
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, "Customer not found".to_string()))?;
+
+    if rows_affected > 0 {
+        Ok("Customer deleted")
+    } else {
+        Err((StatusCode::NOT_FOUND, "Customer not found".to_string()))
     }
-    Err("Customer not found".to_string())
 }
 
 

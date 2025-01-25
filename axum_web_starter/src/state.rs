@@ -1,18 +1,12 @@
-use crate::models::customer::Customer;
-use crate::models::seller::Seller;
-use std::collections::HashMap;
-use uuid::Uuid;
+use sqlx::PgPool;
 
 pub struct AppState {
-    pub customers: HashMap<Uuid, Customer>,
-    pub sellers: HashMap<Uuid, Seller>,
+    pub db_pool: PgPool,
 }
 
 impl AppState {
-    pub fn new() -> Self {
-        Self {
-            customers: HashMap::new(),
-            sellers: HashMap::new(),
-        }
+    pub async fn new(database_url: &str) -> Self {
+        let db_pool = PgPool::connect(database_url).await.expect("Failed to connect to database");
+        Self { db_pool }
     }
 }

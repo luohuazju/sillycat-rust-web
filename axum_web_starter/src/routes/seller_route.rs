@@ -4,15 +4,15 @@ use axum::{
     Router,
 };
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use uuid::Uuid;
 use serde::Deserialize;
 use axum::http::StatusCode;
 
+use crate::daos::seller_dao::SellerDAO;
 use crate::models::seller::Seller;
 use crate::state::AppState;
 
-pub fn seller_routes(app_state: Arc<RwLock<AppState>>) -> Router {
+pub fn seller_routes(app_state: Arc<AppState>) -> Router {
     Router::new()
         .route("/sellers", post(create_seller).get(list_sellers))
         .route("/sellers/{id}", get(get_seller).put(update_seller).delete(delete_seller))
@@ -20,60 +20,58 @@ pub fn seller_routes(app_state: Arc<RwLock<AppState>>) -> Router {
 }
 
 async fn create_seller(
-    State(app_state): State<Arc<RwLock<AppState>>>,
+    State(app_state): State<Arc<AppState>>,
     Json(payload): Json<SellerPayload>,
-) -> Json<Seller> {
-    let mut state = app_state.write().await;
-    let seller = Seller{
-        id: Uuid::new_v4(),
-        name: payload.name,
-        company_name: payload.company_name,
-    };
-    state.sellers.insert(seller.id, seller.clone());
-    Json(seller)
+) -> Result<Json<Seller>, (StatusCode, String)> {
+    SellerDAO::create_seller(&app_state.db_pool, payload.name, payload.company_name)
+        .await
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
-async fn list_sellers(State(app_state): State<Arc<RwLock<AppState>>>
-    ) -> Json<Vec<Seller>>{
-    let state = app_state.read().await;
-    Json(state.sellers.values().cloned().collect())
+async fn list_sellers(
+    State(app_state): State<Arc<AppState>>
+) -> Result<Json<Vec<Seller>>, (StatusCode, String)>{
+    SellerDAO::list_sellers(&app_state.db_pool)
+        .await
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn get_seller(
-    State(app_state): State<Arc<RwLock<AppState>>>,
+    State(app_state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Seller>, (StatusCode, String)> {
-    let state = app_state.read().await;
-    if let Some(seller) = state.sellers.get(&id) {
-        Ok(Json(seller.clone()))
-    } else {
-        Err((StatusCode::NOT_FOUND, "Seller not found".to_string()))
-    }
+    SellerDAO::get_seller(&app_state.db_pool, id)
+        .await
+        .map(Json)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Seller not found".to_string()))
 }
 
 async fn update_seller(
-    State(app_state): State<Arc<RwLock<AppState>>>,
+    State(app_state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
     Json(payload): Json<SellerPayload>,
 ) -> Result<Json<Seller>, (StatusCode, String)> {
-    let mut state = app_state.write().await;
-    if let Some(seller) = state.sellers.get_mut(&id) {
-        seller.name = payload.name;
-        seller.company_name = payload.company_name;
-        return Ok(Json(seller.clone()));
-    }
-    Err((StatusCode::NOT_FOUND, "Seller not found".to_string()))
+    SellerDAO::update_seller(&app_state.db_pool, id, payload.name, payload.company_name)
+        .await
+        .map(Json)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Seller not found".to_string()))
 }
 
 async fn delete_seller(
-    State(app_state): State<Arc<RwLock<AppState>>>,
+    State(app_state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
-) -> Result<&'static str, String> {
-    let mut state = app_state.write().await;
-    if state.sellers.remove(&id).is_some() {
-        return Ok("Seller deleted");
+) -> Result<&'static str, (StatusCode, String)> {
+    let rows_affected = SellerDAO::delete_seller(&app_state.db_pool, id)
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, "Seller not found".to_string()))?;
+
+    if rows_affected > 0 {
+        Ok("Seller deleted")
+    } else {
+        Err((StatusCode::NOT_FOUND, "Seller not found".to_string()))
     }
-    Err("Seller not found".to_string())
 }
 
 

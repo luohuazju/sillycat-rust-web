@@ -3,18 +3,23 @@ use axum::{
     Router,
 };
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 mod models;
+mod daos;
 mod routes;
 mod state;
+use dotenv::dotenv;
 
 use crate::state::AppState;
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
+    // Get the DATABASE_URL from the environment
+    let database_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set in the .env file");
     // Shared state
-    let app_state = Arc::new(RwLock::new(AppState::new()));
+    let app_state = Arc::new(AppState::new(&database_url).await);
 
     // Define routes
     let app = Router::new()
