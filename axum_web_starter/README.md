@@ -8,4 +8,5 @@ cargo test -- --test-threads=1
 cargo clean
 cargo build
 cargo run
+RUST_LOG=error cargo run
 ```

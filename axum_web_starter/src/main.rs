@@ -15,6 +15,8 @@ mod api_doc;
 
 use crate::state::AppState;
 use api_doc::ApiDoc;
+use tracing_subscriber::FmtSubscriber;
+use tracing_subscriber::EnvFilter;
 
 
 #[tokio::main]
@@ -24,7 +26,16 @@ async fn main() {
     let database_url = std::env::var("DATABASE_URL")
         .expect("DATABASE_URL must be set in the .env file");
     // Shared state
-    let app_state = Arc::new(AppState::new(&database_url).await);
+    let app_state = Arc::new(AppState::new(&database_url).await.unwrap());
+
+    //init the logging
+    let subscriber = FmtSubscriber::builder()
+        .with_env_filter(
+            EnvFilter::try_from_default_env() // Tries to read RUST_LOG
+                .unwrap_or_else(|_| EnvFilter::new("info")), // Fallback to "info" if not set
+        )
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     // Define routes
     let app = Router::new()

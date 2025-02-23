@@ -6,6 +6,7 @@ use crate::models::customer::Customer;
 use crate::models::customer::CustomerPayload;
 use crate::state::AppState;
 use uuid::Uuid;
+use tracing::{error, info};
 
 
 pub struct CustomerHandler;
@@ -27,12 +28,15 @@ pub async fn create_customer_api(
         Ok(customer) => {
             // Cache the newly created customer
             let cache_key = format!("customer:{}", customer.id);
-            app_state.cache.insert(cache_key, serde_json::to_string(&customer).unwrap()).await;
+            if let Err(e) = app_state.cache.write(&cache_key, serde_json::to_string(&customer).unwrap()).await {
+                error!("Cache write error: {}", e);
+            }
             Ok(Json(customer))
         }
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
+
 
 #[utoipa::path(
     get,
@@ -48,6 +52,7 @@ pub async fn list_customers_api(State(app_state): State<Arc<AppState>>) -> Resul
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
+
 
 #[utoipa::path(
     get,
@@ -65,17 +70,23 @@ pub async fn get_customer_api(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Customer>, (StatusCode, String)> {
     let cache_key = format!("customer:{}", id);
-    // Check cache first
-    if let Some(cached_customer) = app_state.cache.get(&cache_key).await {
-        let customer: Customer = serde_json::from_str(&cached_customer).unwrap();
-        return Ok(Json(customer));
+    match app_state.cache.read(&cache_key).await {
+        Ok(cached_customer) => {
+            if let Ok(customer) = serde_json::from_slice(&cached_customer.to_vec()) {
+                info!("Cache hit with cahce_key = {}", cache_key);
+                return Ok(Json(customer));
+            } else {
+                error!("Cache read parse error");
+            }
+        }
+        Err(e) => info!("Cache miss with cache_key: {}, with {}", cache_key, e),
     }
 
-    // Fetch from DB if not cached
     match CustomerDAO::get_customer(&app_state.db_pool, id).await {
         Ok(customer) => {
-            // Cache result
-            app_state.cache.insert(cache_key, serde_json::to_string(&customer).unwrap()).await;
+            if let Err(e) = app_state.cache.write(&cache_key, serde_json::to_string(&customer).unwrap()).await {
+                error!("Cache write error: {}", e);
+            }
             Ok(Json(customer))
         }
         Err(_) => Err((StatusCode::NOT_FOUND, "Customer not found".to_string())),
@@ -103,8 +114,9 @@ pub async fn update_customer_api(
         Ok(customer) => {
             // Update cache
             let cache_key = format!("customer:{}", id);
-            app_state.cache.insert(cache_key, serde_json::to_string(&customer).unwrap()).await;
-
+            if let Err(e) = app_state.cache.write(&cache_key, serde_json::to_string(&customer).unwrap()).await {
+                error!("Cache write error: {}", e);
+            }
             Ok(Json(customer))
         }
         Err(_) => Err((StatusCode::NOT_FOUND, "Customer not found".to_string())),
@@ -130,8 +142,9 @@ pub async fn delete_customer_api(
         Ok(rows_affected) if rows_affected > 0 => {
             // Invalidate cache after deletion
             let cache_key = format!("customer:{}", id);
-            app_state.cache.invalidate(&cache_key).await;
-
+            if let Err(e) = app_state.cache.delete(&cache_key).await {
+                error!("Cache delete error: {}", e);
+            }
             Ok("Customer deleted")
         }
         _ => Err((StatusCode::NOT_FOUND, "Customer not found".to_string())),
