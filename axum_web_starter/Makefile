@@ -32,12 +32,26 @@ run-db:
   		cockroachdb/cockroach:latest start-single-node --insecure \
   		--cache=0.25 --max-sql-memory=0.25
 
+run-redis:
+	docker run --name redis -d \
+		-p 6379:6379 \
+		-v redis-data:/data \
+		redis:latest redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+
 enter-db:
 	docker exec -it cockroach cockroach sql --insecure
+
+enter-redis:
+	docker exec -it redis redis-cli
 
 clean-db:
 	docker stop cockroach
 	docker rm cockroach
+
+clean-redis:
+	docker stop redis
+	docker rm redis
 
 clean:
 	docker stop $(NAME)

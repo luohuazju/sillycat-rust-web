@@ -25,8 +25,11 @@ async fn main() {
     // Get the DATABASE_URL from the environment
     let database_url = std::env::var("DATABASE_URL")
         .expect("DATABASE_URL must be set in the .env file");
+
+    let redis_url = std::env::var("REDIS_URL")
+        .expect("REDIS_URL must be set in the .env file");
     // Shared state
-    let app_state = Arc::new(AppState::new(&database_url).await.unwrap());
+    let app_state = Arc::new(AppState::new(&database_url, &redis_url).await.unwrap());
 
     //init the logging
     let subscriber = FmtSubscriber::builder()
